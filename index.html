@@ -937,7 +937,7 @@ function render(){
 // Load book (JSON-driven)
 async function loadBook(){
   try{
-    const resp=await fetch("./books/mybook/story.json");
+    const resp=await fetch("https://camcookie876.github.io/books/bookimfo/1/1.json");
     if(!resp.ok) throw new Error("story.json not found");
     const book=await resp.json();
     state.book=book;
