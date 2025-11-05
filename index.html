@@ -83,9 +83,7 @@ button.nav-btn svg{width:22px;height:22px}
 
 /* Highlights */
 .highlight{background:var(--highlight);border-radius:4px;padding:0 2px;position:relative}
-.highlight.has-note::after{
-  content:"";position:absolute;right:-8px;top:-4px;width:8px;height:8px;border-radius:50%;background:#ff6b00
-}
+.highlight.has-note::after{content:"";position:absolute;right:-8px;top:-4px;width:8px;height:8px;border-radius:50%;background:#ff6b00}
 .note-item{display:flex;gap:0.5rem;align-items:center}
 .note-item input{flex:1;padding:0.35rem;border:1px solid #ccc;border-radius:8px}
 
@@ -131,6 +129,12 @@ body.dark .color-swatch{border-color:#3a3a3a}
 }
 @keyframes toast-in{to{opacity:1;transform:translateY(0)}}
 @keyframes toast-out{to{opacity:0;transform:translateY(20px)}}
+
+/* TTS word highlighting */
+.tts-word.active{
+  background:#cfe3ff;
+  border-radius:3px;
+}
 
 @media (max-width:640px){.overlay{width:100%}}
 @media (pointer:coarse){nav.floater{display:none}}
@@ -278,7 +282,6 @@ body.dark .color-swatch{border-color:#3a3a3a}
     </div>
   </div>
 
-  <!-- Search overlay -->
   <div id="searchOverlay" aria-label="Search dialog">
     <div id="searchBox">
       <div style="display:flex;gap:0.5rem;align-items:center">
@@ -322,7 +325,10 @@ const state={
   highlights:{},
   notesByHighlight:{},
   pressTimer:null,
-  tts:{utter:null,playing:false,voices:[],voiceIndex:null,rate:1,sentences:[],sentIdx:0}
+  tts:{
+    utter:null,playing:false,voices:[],voiceIndex:null,rate:1,
+    sentences:[],sentIdx:0,lastText:"",wordMap:null
+  }
 };
 const els={
   book:document.getElementById("book"),
@@ -436,7 +442,7 @@ document.addEventListener("keydown",(e)=>{
   else if(e.key==="/"){e.preventDefault();toggleSearch(true)}
 });
 
-// Swipe + long-press for dictionary
+// Swipe + long-press (dictionary)
 let startX=0,startY=0;
 document.addEventListener("touchstart",e=>{
   startX=e.touches[0].clientX;startY=e.touches[0].clientY;
@@ -455,7 +461,7 @@ document.addEventListener("mousedown",e=>{
 });
 document.addEventListener("mouseup",()=>clearTimeout(state.pressTimer));
 
-// Overlay toggle
+// Overlay toggle (including click on page)
 document.getElementById("toggleOverlay").onclick=()=>els.overlay.classList.toggle("show");
 document.getElementById("closeOverlay").onclick=()=>els.overlay.classList.remove("show");
 document.addEventListener("click",(e)=>{
@@ -729,7 +735,7 @@ function applyPrefs(){
   const immersive=localStorage.getItem("immersive")==="1";document.body.classList.toggle("immersive",immersive);
 }
 
-// TTS (Web Speech API)
+// TTS voices and word-level highlighting with role tags
 function initTTS(){
   if(!("speechSynthesis" in window)){
     ["ttsPlayPause","ttsStop","ttsPrev","ttsNext"].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=true});
@@ -757,24 +763,96 @@ function pagePlainText(){
   const ch=page.querySelector(".chapter");
   return ch?ch.textContent.trim():"";
 }
-function splitSentences(txt){return txt.split(/(?<=[.!?])\s+/).filter(s=>s.trim().length>0)}
+function parseTaggedSentences(txt){
+  const parts=txt.split(/(
+
+\[[a-zA-Z]+\]
+
+)/);
+  const sentences=[]; let role="narrator";
+  parts.forEach(part=>{
+    const tag=part.match(/^
+
+\[([a-zA-Z]+)\]
+
+$/);
+    if(tag){role=tag[1].toLowerCase();}
+    else if(part.trim()){
+      part.split(/(?<=[.!?])\s+/).forEach(s=>{
+        if(s.trim()) sentences.push({role,text:s.trim()});
+      });
+    }
+  });
+  return sentences;
+}
+function buildWordMap(text){
+  // Build a list of {start, end} for each "word" in the sentence
+  const words=[]; const re=/\S+/g; let m;
+  while((m=re.exec(text))){words.push({start:m.index,end:m.index+m[0].length});}
+  return words;
+}
+function applyWordHighlight(sentenceText, wordIndex){
+  const ch=document.querySelectorAll(".page")[state.current]?.querySelector(".chapter");
+  if(!ch) return;
+  // Re-render sentence with current word highlighted
+  const map=state.tts.wordMap;
+  const word=map[wordIndex];
+  if(!word){clearHighlights();return;}
+  const full=ch.textContent; // original chapter plain text
+  // We compute current sentence global start by searching sentenceText in full near previous charIndex baseline (simple approach)
+  const sliceStart = full.indexOf(sentenceText);
+  if(sliceStart<0){clearHighlights();return;}
+  const sStart = sliceStart + word.start;
+  const sEnd = sliceStart + word.end;
+  const before = escapeHtml(full.slice(0,sStart));
+  const current = escapeHtml(full.slice(sStart,sEnd));
+  const after = escapeHtml(full.slice(sEnd));
+  ch.innerHTML = before + `<span class="tts-word active">${current}</span>` + after;
+}
+function clearHighlights(){
+  const ch=document.querySelectorAll(".page")[state.current]?.querySelector(".chapter");
+  if(!ch) return;
+  ch.innerHTML=escapeHtml(ch.textContent);
+}
 function speakCurrentSentence(){
-  const sentences=state.tts.sentences;
-  const idx=state.tts.sentIdx;
-  if(idx<0||idx>=sentences.length){stopTTS();return}
-  const u=new SpeechSynthesisUtterance(sentences[idx]);
+  const s=state.tts.sentences[state.tts.sentIdx];
+  if(!s){stopTTS();return;}
+  const u=new SpeechSynthesisUtterance(s.text);
   u.rate=state.tts.rate;
-  const voice=state.tts.voices[state.tts.voiceIndex];
-  if(voice)u.voice=voice;
+  // role-based voice assignment from JSON voices or fallback selected voice
+  const voiceName=state.book?.voices?.[s.role];
+  if(voiceName){
+    const v=state.tts.voices.find(v=>v.name===voiceName);
+    if(v) u.voice=v;
+  }else{
+    const v=state.tts.voices[state.tts.voiceIndex];
+    if(v) u.voice=v;
+  }
+  state.tts.lastText = s.text;
+  state.tts.wordMap = buildWordMap(s.text);
+
+  // boundary events for word highlighting (supported in most browsers)
+  let wordIdx=0;
+  u.onboundary=(e)=>{
+    if(e.name==="word"){
+      applyWordHighlight(s.text, wordIdx);
+      wordIdx++;
+    }
+  };
   u.onend=()=>{
+    clearHighlights();
     state.tts.sentIdx++;
-    if(state.tts.sentIdx<sentences.length){speakCurrentSentence()}
-    else{
+    if(state.tts.sentIdx<state.tts.sentences.length){
+      speakCurrentSentence();
+    }else{
       state.tts.playing=false;
+      // optional auto-advance page
       if(state.mode==="paged" && state.current<state.pages.length-1){nextPage()}
     }
   };
-  state.tts.utter=u;speechSynthesis.speak(u);state.tts.playing=true;
+  state.tts.utter=u;
+  speechSynthesis.speak(u);
+  state.tts.playing=true;
 }
 function toggleTTS(){
   if(speechSynthesis.speaking){
@@ -782,14 +860,18 @@ function toggleTTS(){
     else{speechSynthesis.resume();state.tts.playing=true}
     return;
   }
-  const txt=pagePlainText();if(!txt){return}
-  state.tts.sentences=splitSentences(txt);state.tts.sentIdx=0;speakCurrentSentence();
+  const txt=pagePlainText();
+  if(!txt){return}
+  state.tts.sentences=parseTaggedSentences(txt);
+  state.tts.sentIdx=0;
+  speakCurrentSentence();
 }
-function stopTTS(){try{speechSynthesis.cancel()}catch{}state.tts.playing=false}
+function stopTTS(){try{speechSynthesis.cancel()}catch{}state.tts.playing=false;clearHighlights();}
 function seekSentence(delta){
-  if(!state.tts.sentences.length){state.tts.sentences=splitSentences(pagePlainText())}
+  if(!state.tts.sentences.length){state.tts.sentences=parseTaggedSentences(pagePlainText())}
   state.tts.sentIdx=Math.max(0,Math.min(state.tts.sentences.length-1,state.tts.sentIdx+delta));
-  stopTTS();speakCurrentSentence();
+  stopTTS();
+  speakCurrentSentence();
 }
 
 // Search overlay
@@ -833,7 +915,7 @@ window.addEventListener("load",()=>{
 function registerSW(){
   if(!("serviceWorker" in navigator))return;
   const swCode = `
-    const CACHE_NAME="book-reader-cache-v3";
+    const CACHE_NAME="book-reader-cache-v4";
     const ASSETS=["./","${JSON_URL}"];
     self.addEventListener("install",e=>{
       e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
@@ -871,14 +953,24 @@ const observer=new MutationObserver(()=>{
 observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["class"]});
 
 // Templates (JSON-driven)
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g,s=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[s]));
+}
+function resolveAsset(pathOrUrl){
+  if(!pathOrUrl) return "";
+  try{
+    const u=new URL(pathOrUrl, JSON_URL);
+    return u.href;
+  }catch{ return pathOrUrl }
+}
 function pageTemplateCover(book){
   return `<section class="page" aria-label="Cover">
     <button class="tag-bookmark" aria-label="Bookmark">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     </button>
     <img class="cover" src="${resolveAsset(book.cover)}" alt="Cover" onerror="this.style.display='none'">
-    <h1 style="text-align:center">${book.title||""}</h1>
-    <p style="text-align:center" class="small-muted">${book.author||""}</p>
+    <h1 style="text-align:center">${escapeHtml(book.title||"")}</h1>
+    <p style="text-align:center" class="small-muted">${escapeHtml(book.author||"")}</p>
   </section>`;
 }
 function pageTemplateChapter(num,ch){
@@ -887,7 +979,7 @@ function pageTemplateChapter(num,ch){
     <button class="tag-bookmark" aria-label="Bookmark">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     </button>
-    <h2>${ch.title?ch.title:`Chapter ${num}`}</h2>
+    <h2>${escapeHtml(ch.title?ch.title:`Chapter ${num}`)}</h2>
     ${img}
     <div class="chapter">${escapeHtml(ch.text||"").replace(/\n/g,"<br>")}</div>
   </section>`;
@@ -900,16 +992,6 @@ function pageTemplateBack(book){
     <img class="back" src="${resolveAsset(book.back)}" alt="Back" onerror="this.style.display='none'">
     <div class="small-muted" style="text-align:center">The End</div>
   </section>`;
-}
-function escapeHtml(str){
-  return String(str).replace(/[&<>"']/g,s=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[s]));
-}
-function resolveAsset(pathOrUrl){
-  if(!pathOrUrl) return "";
-  try{
-    const u=new URL(pathOrUrl, JSON_URL); // resolves relative to JSON location
-    return u.href;
-  }catch{ return pathOrUrl }
 }
 
 // Outline + stats
@@ -977,7 +1059,7 @@ async function loadBook(){
 function registerSW(){
   if(!("serviceWorker" in navigator))return;
   const swCode = `
-    const CACHE_NAME="book-reader-cache-v3";
+    const CACHE_NAME="book-reader-cache-v4";
     const ASSETS=["./","${JSON_URL}"];
     self.addEventListener("install",e=>{
       e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
@@ -1000,19 +1082,6 @@ function registerSW(){
   const swUrl=URL.createObjectURL(blob);
   navigator.serviceWorker.register(swUrl).catch(()=>{});
 }
-
-// Accessibility announce
-const announcer=document.createElement("div");
-announcer.setAttribute("aria-live","polite");
-announcer.className="small-muted";
-announcer.style.position="absolute";announcer.style.left="-9999px";
-document.body.appendChild(announcer);
-function announce(msg){announcer.textContent=msg}
-const observer=new MutationObserver(()=>{
-  const page=document.querySelector(".page.active h2, .page.active h1");
-  if(page){announce(`Reading ${page.textContent}`)}
-});
-observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["class"]});
 
 // Init
 initPalette();
