@@ -311,12 +311,13 @@ document.addEventListener("contextmenu",e=>{e.preventDefault();showToast("Contex
 document.addEventListener("copy",e=>{e.preventDefault();showToast("Copy disabled. Highlight text and attach notes instead.");});
 
 // Core state
+const JSON_URL = "https://camcookie876.github.io/books/bookimfo/1/1.json";
 const state={
   pages:[],
   current:0,
   book:null,
   isDark:false,
-  mode:"paged", // 'paged' | 'scroll'
+  mode:"paged",
   chapterWordCounts:[],
   highlights:{},
   notesByHighlight:{},
@@ -435,7 +436,7 @@ document.addEventListener("keydown",(e)=>{
   else if(e.key==="/"){e.preventDefault();toggleSearch(true)}
 });
 
-// Swipe + long-press
+// Swipe + long-press for dictionary
 let startX=0,startY=0;
 document.addEventListener("touchstart",e=>{
   startX=e.touches[0].clientX;startY=e.touches[0].clientY;
@@ -640,6 +641,22 @@ function renderHighlightsList(focusId=null){
     if(focusId&&focusId===id){input.focus()}
   });
 }
+function deleteHighlight(id){
+  const info=state.highlights[id];
+  delete state.highlights[id];delete state.notesByHighlight[id];
+  saveHighlightData();renderHighlightsList();
+  if(info){
+    const pageEl=document.querySelectorAll(".page")[info.pageIndex];
+    if(pageEl){
+      const span=pageEl.querySelector(`.highlight[data-hid="${id}"]`);
+      if(span){
+        const parent=span.parentNode;
+        while(span.firstChild)parent.insertBefore(span.firstChild,span);
+        parent.removeChild(span);
+      }
+    }
+  }
+}
 
 // Export notes
 document.getElementById("exportNotesJson").onclick=()=>downloadText("highlights.json",JSON.stringify({highlights:state.highlights,notes:state.notesByHighlight},null,2));
@@ -669,22 +686,6 @@ function downloadText(filename,content){
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download=filename;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-function deleteHighlight(id){
-  const info=state.highlights[id];
-  delete state.highlights[id];delete state.notesByHighlight[id];
-  saveHighlightData();renderHighlightsList();
-  if(info){
-    const pageEl=document.querySelectorAll(".page")[info.pageIndex];
-    if(pageEl){
-      const span=pageEl.querySelector(`.highlight[data-hid="${id}"]`);
-      if(span){
-        const parent=span.parentNode;
-        while(span.firstChild)parent.insertBefore(span.firstChild,span);
-        parent.removeChild(span);
-      }
-    }
-  }
 }
 
 // Bookmarks
@@ -832,8 +833,8 @@ window.addEventListener("load",()=>{
 function registerSW(){
   if(!("serviceWorker" in navigator))return;
   const swCode = `
-    const CACHE_NAME="book-reader-cache-v2";
-    const ASSETS=["camcookie876.github.io/books/bookimfo/1/1.json"];
+    const CACHE_NAME="book-reader-cache-v3";
+    const ASSETS=["./","${JSON_URL}"];
     self.addEventListener("install",e=>{
       e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
     });
@@ -875,20 +876,20 @@ function pageTemplateCover(book){
     <button class="tag-bookmark" aria-label="Bookmark">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     </button>
-    <img class="cover" src="./books/mybook/${book.cover}" alt="Cover" onerror="this.style.display='none'">
+    <img class="cover" src="${resolveAsset(book.cover)}" alt="Cover" onerror="this.style.display='none'">
     <h1 style="text-align:center">${book.title||""}</h1>
     <p style="text-align:center" class="small-muted">${book.author||""}</p>
   </section>`;
 }
 function pageTemplateChapter(num,ch){
-  const img=ch.image?`<img class="chapter-img" src="./books/mybook/${ch.image}" alt="Chapter image" onerror="this.style.display='none'">`:"";
+  const img=ch.image?`<img class="chapter-img" src="${resolveAsset(ch.image)}" alt="Chapter image" onerror="this.style.display='none'">`:"";
   return `<section class="page" aria-label="Chapter ${num}">
     <button class="tag-bookmark" aria-label="Bookmark">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     </button>
     <h2>${ch.title?ch.title:`Chapter ${num}`}</h2>
     ${img}
-    <div class="chapter">${(ch.text||"").replace(/\n/g,"<br>")}</div>
+    <div class="chapter">${escapeHtml(ch.text||"").replace(/\n/g,"<br>")}</div>
   </section>`;
 }
 function pageTemplateBack(book){
@@ -896,9 +897,19 @@ function pageTemplateBack(book){
     <button class="tag-bookmark" aria-label="Bookmark">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
     </button>
-    <img class="back" src="./books/mybook/${book.back}" alt="Back" onerror="this.style.display='none'">
+    <img class="back" src="${resolveAsset(book.back)}" alt="Back" onerror="this.style.display='none'">
     <div class="small-muted" style="text-align:center">The End</div>
   </section>`;
+}
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g,s=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[s]));
+}
+function resolveAsset(pathOrUrl){
+  if(!pathOrUrl) return "";
+  try{
+    const u=new URL(pathOrUrl, JSON_URL); // resolves relative to JSON location
+    return u.href;
+  }catch{ return pathOrUrl }
 }
 
 // Outline + stats
@@ -937,29 +948,28 @@ function render(){
 // Load book (JSON-driven)
 async function loadBook(){
   try{
-    const resp=await fetch("https://camcookie876.github.io/books/bookimfo/1/1.json");
-    if(!resp.ok) throw new Error("story.json not found");
+    const resp=await fetch(JSON_URL,{cache:"no-cache"});
+    if(!resp.ok) throw new Error("Failed to fetch JSON");
     const book=await resp.json();
+    if(!book || !Array.isArray(book.chapters)) throw new Error("Invalid JSON format");
     state.book=book;
     els.title.textContent=book.title||"Untitled";
-    // Build pages
+
     state.pages=[];
     state.pages.push(pageTemplateCover(book));
-    book.chapters.forEach((ch,i)=>{
-      state.pages.push(pageTemplateChapter(i+1,ch));
-    });
+    book.chapters.forEach((ch,i)=>{ state.pages.push(pageTemplateChapter(i+1,ch)); });
     state.pages.push(pageTemplateBack(book));
-    // Stats
+
     estimateTotals();
     buildOutline();
-    // Render
     render();
     updateProgress();
     loadHighlightData();
     renderHighlightsList();
   }catch(e){
-    els.book.innerHTML=`<section class="page active"><h2>Failed to load story</h2><div class="small-muted">Ensure ./books/mybook/story.json exists.</div></section>`;
-    showToast("Failed to load story.json");
+    els.book.innerHTML=`<section class="page active"><h2>Failed to load story</h2><div class="small-muted">Ensure the JSON is accessible at ${JSON_URL} and follows the expected schema.</div></section>`;
+    showToast("Unable to load story data.");
+    console.error(e);
   }
 }
 
@@ -967,8 +977,8 @@ async function loadBook(){
 function registerSW(){
   if(!("serviceWorker" in navigator))return;
   const swCode = `
-    const CACHE_NAME="book-reader-cache-v2";
-    const ASSETS=["./","./books/mybook/story.json"];
+    const CACHE_NAME="book-reader-cache-v3";
+    const ASSETS=["./","${JSON_URL}"];
     self.addEventListener("install",e=>{
       e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
     });
