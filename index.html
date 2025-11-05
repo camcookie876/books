@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Book Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root{
+  --bg-light:#f7f7f7;--bg-dark:#121212;
+  --page-light:#ffffff;--page-dark:#1c1c1c;
+  --text-light:#111;--text-dark:#eaeaea;
+  --muted:#6a6a6a;--accent:#0a84ff;--accent-dark:#bb86fc;
+  --highlight:#fff3a3;--shadow:0 8px 28px rgba(0,0,0,0.12),0 2px 8px rgba(0,0,0,0.08)
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg-light);color:var(--text-light);font-family:Georgia,serif;transition:background 0.3s,color 0.3s}
+#app{min-height:100vh;display:flex;flex-direction:column}
+
+/* Header */
+header.appbar{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+  padding:0.75rem 1rem;background:#fff;box-shadow:var(--shadow)
+}
+.appbar-left{display:flex;gap:0.75rem;align-items:center}
+.appbar-right{display:flex;gap:0.5rem;align-items:center}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;border:none;border-radius:8px;
+  background:#f3f3f3;padding:0.45rem 0.6rem;cursor:pointer;box-shadow:var(--shadow);transition:filter 0.2s,background 0.2s
+}
+.icon-btn:hover{filter:brightness(0.95)}
+.icon-btn svg{width:20px;height:20px;stroke:currentColor;fill:none}
+
+/* TTS controls */
+.tts-controls{
+  display:flex;align-items:center;gap:0.5rem;background:#eef5ff;color:#0a3cff;
+  padding:0.45rem 0.75rem;border-radius:999px;box-shadow:var(--shadow)
+}
+.tts-controls select,.tts-controls input[type="range"]{
+  appearance:none;border:1px solid #cbd5ff;background:#fff;color:#0a3cff;border-radius:8px;padding:0.2rem 0.4rem
+}
+.tts-controls label{font-size:12px;color:#0a3cff;display:flex;align-items:center;gap:0.25rem}
+
+/* Reader */
+main{flex:1;position:relative}
+.reader{max-width:840px;margin:1rem auto 3.5rem;position:relative}
+.page{
+  display:none;margin:0 auto;padding:1.5rem 1.75rem;background:var(--page-light);color:inherit;border-radius:12px;
+  box-shadow:var(--shadow);line-height:1.75;transition:opacity 220ms ease,transform 220ms ease
+}
+.page.active{display:block;opacity:1;transform:translateX(0)}
+.page.enter-left{opacity:0;transform:translateX(-18px)}
+.page.enter-right{opacity:0;transform:translateX(18px)}
+.page h1,.page h2{margin:0.25rem 0 0.75rem}
+img.cover,img.back,img.chapter-img{max-width:100%;display:block;margin:1rem auto;border-radius:10px}
+.tag-bookmark{
+  position:absolute;top:16px;right:16px;background:#ffffff;border:1px solid #ddd;border-radius:999px;
+  width:38px;height:38px;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);cursor:pointer
+}
+.tag-bookmark svg{width:20px;height:20px;stroke:#888}
+.tag-bookmark.active svg{stroke:#ff6b00}
+
+/* Floating navigation */
+nav.floater{position:fixed;bottom:12px;right:12px;z-index:25;display:flex;gap:0.5rem}
+button.nav-btn{padding:0.6rem;border:1px solid #ddd;background:#fafafa;border-radius:999px;cursor:pointer;box-shadow:var(--shadow)}
+button.nav-btn svg{width:22px;height:22px}
+
+/* Overlay */
+.overlay{
+  position:fixed;top:0;right:0;width:420px;height:100%;background:#fff;box-shadow:-12px 0 30px rgba(0,0,0,0.22);
+  transform:translateX(100%);transition:transform 0.28s,opacity 0.28s;display:flex;flex-direction:column;z-index:40;opacity:0
+}
+.overlay.show{transform:translateX(0);opacity:1}
+.overlay header{display:flex;align-items:center;justify-content:space-between;padding:0.9rem 1rem;border-bottom:1px solid #eee}
+.panel{flex:1;overflow:auto;padding:1rem}
+.panel h4{margin:0.5rem 0 0.4rem}
+.section{margin-bottom:1rem;padding-bottom:0.75rem;border-bottom:1px dashed #e8e8e8}
+.list{display:flex;flex-wrap:wrap;gap:0.5rem}
+.font-option{padding:0.35rem 0.65rem;border:1px solid #ddd;border-radius:8px;background:#fafafa;cursor:pointer}
+.color-swatch{width:26px;height:26px;border-radius:50%;border:2px solid #ccc;cursor:pointer}
+.color-swatch.selected{border-color:#000}
+.small-muted{color:var(--muted);font-size:12px}
+
+/* Highlights */
+.highlight{background:var(--highlight);border-radius:4px;padding:0 2px;position:relative}
+.highlight.has-note::after{
+  content:"";position:absolute;right:-8px;top:-4px;width:8px;height:8px;border-radius:50%;background:#ff6b00
+}
+.note-item{display:flex;gap:0.5rem;align-items:center}
+.note-item input{flex:1;padding:0.35rem;border:1px solid #ccc;border-radius:8px}
+
+/* Controls */
+.controls-row{display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap}
+.input{padding:0.45rem;border:1px solid #ccc;border-radius:8px}
+.mode-toggle{display:inline-flex;gap:0.4rem;align-items:center;border:1px solid #ddd;border-radius:8px;padding:0.3rem 0.5rem;background:#fafafa}
+
+/* Modes */
+.reader.scroll-mode .page{display:block;margin-bottom:1rem}
+.reader.scroll-mode .page.active{display:block}
+.reader.scroll-mode .tag-bookmark{top:8px;right:8px}
+
+/* Progress */
+.progress-wrap{position:fixed;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.08);z-index:30}
+.progress-bar{height:100%;width:0;background:var(--accent);transition:width 0.2s}
+
+/* Search overlay */
+#searchOverlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:50}
+#searchOverlay.show{display:flex}
+#searchBox{background:#fff;padding:1rem;border-radius:12px;max-width:560px;width:92%;box-shadow:var(--shadow)}
+#searchResults{max-height:320px;overflow:auto;margin-top:0.75rem}
+
+/* Immersive */
+body.immersive header.appbar,body.immersive nav.floater,body.immersive .progress-wrap{display:none}
+
+/* Dark theme */
+body.dark{background:var(--bg-dark);color:var(--text-dark)}
+body.dark header.appbar{background:#1c1c1c;color:var(--text-dark)}
+body.dark .page{background:var(--page-dark);color:var(--text-dark)}
+body.dark .overlay{background:#1c1c1c}
+body.dark .progress-bar{background:var(--accent-dark)}
+body.dark .font-option,body.dark .icon-btn,body.dark .nav-btn{background:#2a2a2a;border-color:#3a3a3a;color:var(--text-dark)}
+body.dark .color-swatch{border-color:#3a3a3a}
+
+/* Toast alerts */
+#toastContainer{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:0.5rem;z-index:100
+}
+.toast{
+  background:#333;color:#fff;padding:0.75rem 1rem;border-radius:8px;box-shadow:var(--shadow);
+  font-size:14px;opacity:0;transform:translateY(20px);animation:toast-in 0.28s forwards, toast-out 0.3s forwards 3.2s
+}
+@keyframes toast-in{to{opacity:1;transform:translateY(0)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(20px)}}
+
+@media (max-width:640px){.overlay{width:100%}}
+@media (pointer:coarse){nav.floater{display:none}}
+</style>
+</head>
+<body>
+<div id="app" aria-live="polite">
+  <header class="appbar" role="banner">
+    <div class="appbar-left">
+      <button class="icon-btn" id="toggleOverlay" aria-label="Open tools">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <strong id="bookTitle">Loading</strong>
+      <span id="readingEta" class="small-muted"></span>
+      <span id="headerProgress" class="small-muted" style="margin-left:0.5rem"></span>
+    </div>
+    <div class="appbar-right">
+      <div class="tts-controls" aria-label="Text-to-speech controls">
+        <button class="icon-btn" id="ttsPlayPause" aria-label="Play">
+          <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+        <button class="icon-btn" id="ttsStop" aria-label="Stop">
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg>
+        </button>
+        <button class="icon-btn" id="ttsPrev" aria-label="Previous sentence">
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/></svg>
+        </button>
+        <button class="icon-btn" id="ttsNext" aria-label="Next sentence">
+          <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/><line x1="15" y1="6" x2="15" y2="18"/></svg>
+        </button>
+        <label>
+          <span>Speed</span>
+          <input type="range" id="ttsRate" min="0.6" max="2" step="0.1" value="1" aria-label="Speech rate">
+        </label>
+        <label>
+          <span>Voice</span>
+          <select id="ttsVoice" aria-label="Voice select"></select>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main id="book" class="reader" role="main" aria-label="Book content"></main>
+
+  <nav class="floater" aria-label="Page navigation">
+    <button class="nav-btn" id="prev" aria-label="Previous page">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <button class="nav-btn" id="next" aria-label="Next page">
+      <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </button>
+  </nav>
+
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+
+  <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Book tools">
+    <header>
+      <strong>Book Tools</strong>
+      <button class="icon-btn" id="closeOverlay" aria-label="Close tools">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </header>
+    <div class="panel">
+      <div class="section">
+        <h4>Outline</h4>
+        <div id="outline" class="list"></div>
+      </div>
+
+      <div class="section">
+        <h4>Bookmarks</h4>
+        <div id="bookmarks" class="list"></div>
+      </div>
+
+      <div class="section">
+        <h4>Highlights & notes</h4>
+        <div class="small-muted">Select text in a chapter to highlight, then add/edit a note. Notes are saved on your device.</div>
+        <div id="highlights" class="list" style="flex-direction:column"></div>
+        <div class="controls-row" style="margin-top:0.5rem">
+          <button class="font-option" id="exportNotesJson">Export JSON</button>
+          <button class="font-option" id="exportNotesMd">Export Markdown</button>
+          <button class="font-option" id="clearNotes">Clear all</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Customization</h4>
+        <div class="controls-row">
+          <div class="mode-toggle">
+            <span class="small-muted">Mode</span>
+            <button class="font-option" id="modePaged">Paged</button>
+            <button class="font-option" id="modeScroll">Continuous</button>
+          </div>
+          <div class="mode-toggle">
+            <span class="small-muted">Theme</span>
+            <button class="icon-btn" id="toggleTheme" aria-label="Toggle theme">
+              <svg id="themeIcon" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c4.97 0 9-4.03 9-9 0-4.97-4.03-9-9-9z"/></svg>
+            </button>
+          </div>
+          <button class="font-option" id="toggleImmersive">Immersive</button>
+        </div>
+        <div style="margin-bottom:0.5rem">
+          <label class="small-muted">Font size</label>
+          <input type="range" id="fontSize" min="14" max="32" value="18">
+        </div>
+        <div style="margin-bottom:0.5rem">
+          <label class="small-muted">Background</label>
+          <div class="list" id="palette"></div>
+        </div>
+        <div>
+          <label class="small-muted">Font family</label>
+          <div class="list">
+            <button class="font-option" data-font="Georgia,serif" style="font-family:Georgia,serif">Serif</button>
+            <button class="font-option" data-font="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans','Liberation Sans',sans-serif" style="font-family:system-ui">Sans</button>
+            <button class="font-option" data-font="'OpenDyslexic',Arial,sans-serif" style="font-family:Arial">Dyslexia-friendly</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Dictionary</h4>
+        <div class="small-muted">Long-press a word in the text, or type below.</div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <input id="dictWord" class="input" placeholder="Type a word…" style="flex:1">
+          <button class="icon-btn" id="lookupWord" aria-label="Lookup">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+        </div>
+        <div id="dictResult" class="small-muted" style="margin-top:0.5rem"></div>
+      </div>
+
+      <div class="section">
+        <h4>Search</h4>
+        <div class="small-muted">Use / or button to open search. Results jump to chapters.</div>
+        <div class="controls-row">
+          <button class="font-option" id="openSearch">Search</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h4>Reading stats</h4>
+        <div id="statsBox" class="small-muted"></div>
+      </div>
+
+      <div class="small-muted">Tip: Tap anywhere on the page to open/close tools. Keyboard: Left/Right to navigate, B bookmark, H toggle tools, I immersive, / search.</div>
+    </div>
+  </div>
+
+  <!-- Search overlay -->
+  <div id="searchOverlay" aria-label="Search dialog">
+    <div id="searchBox">
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" placeholder="Search book…" style="width:100%;padding:0.5rem;border:1px solid #ccc;border-radius:8px">
+        <button class="icon-btn" id="closeSearch" aria-label="Close search">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="searchResults" class="list" style="margin-top:0.5rem;flex-direction:column"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Toast system
+const toastContainer = document.createElement("div");
+toastContainer.id = "toastContainer";
+document.body.appendChild(toastContainer);
+function showToast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  toastContainer.appendChild(t);
+  setTimeout(()=>t.remove(), 3500);
+}
+
+// Prevent context menu and copying; keep selection for highlights
+document.addEventListener("contextmenu",e=>{e.preventDefault();showToast("Context menu disabled.");});
+document.addEventListener("copy",e=>{e.preventDefault();showToast("Copy disabled. Highlight text and attach notes instead.");});
+
+// Core state
+const state={
+  pages:[],
+  current:0,
+  book:null,
+  isDark:false,
+  mode:"paged", // 'paged' | 'scroll'
+  chapterWordCounts:[],
+  highlights:{},
+  notesByHighlight:{},
+  pressTimer:null,
+  tts:{utter:null,playing:false,voices:[],voiceIndex:null,rate:1,sentences:[],sentIdx:0}
+};
+const els={
+  book:document.getElementById("book"),
+  overlay:document.getElementById("overlay"),
+  progressBar:document.getElementById("progressBar"),
+  title:document.getElementById("bookTitle"),
+  readingEta:document.getElementById("readingEta"),
+  headerProgress:document.getElementById("headerProgress"),
+  themeIcon:document.getElementById("themeIcon"),
+  dictResult:document.getElementById("dictResult"),
+  ttsVoice:document.getElementById("ttsVoice"),
+  ttsRate:document.getElementById("ttsRate"),
+  statsBox:document.getElementById("statsBox"),
+  searchOverlay:document.getElementById("searchOverlay"),
+  searchInput:document.getElementById("searchInput"),
+  searchResults:document.getElementById("searchResults")
+};
+
+// Palette (with sepia)
+const paletteColors=["#f7f7f7","#fffaf2","#f4ecd8","#eef7ee","#eef4ff","#212121","#000000"];
+function initPalette(){
+  const p=document.getElementById("palette");
+  paletteColors.forEach(c=>{
+    const d=document.createElement("div");
+    d.className="color-swatch";d.style.background=c;
+    d.onclick=()=>{
+      document.body.style.background=c;
+      localStorage.setItem("bgColor",c);
+      document.querySelectorAll(".color-swatch").forEach(s=>s.classList.remove("selected"));
+      d.classList.add("selected");
+    };
+    p.appendChild(d);
+  });
+  const bg=localStorage.getItem("bgColor");
+  if(bg){
+    document.body.style.background=bg;
+    document.querySelectorAll(".color-swatch").forEach(s=>{if(s.style.background===bg)s.classList.add("selected")})
+  }
+}
+
+// Progress + ETA
+function updateProgress(){
+  const pct=(state.current/(state.pages.length-1))*100;
+  els.progressBar.style.width=(isNaN(pct)?0:pct)+"%";
+  updateChapterEta();
+  updateHeaderProgress();
+}
+function updateChapterEta(){
+  const wpm=220;
+  const pageIndex=state.current;
+  let etaText="";
+  if(pageIndex===0){etaText=" · Tap to start reading"}
+  else if(pageIndex===state.pages.length-1){etaText=" · Thanks for reading"}
+  else{
+    const chapterIdx=pageIndex-1;
+    const words=state.chapterWordCounts[chapterIdx]||0;
+    const mins=Math.max(1,Math.ceil(words/wpm));
+    etaText=` · ~${mins} min left in chapter`;
+  }
+  els.readingEta.textContent=etaText;
+}
+function updateHeaderProgress(){
+  if(!state.book){els.headerProgress.textContent="";return;}
+  const totalCh=state.book.chapters.length;
+  if(state.current===0){els.headerProgress.textContent=`0% · 0 of ${totalCh} chapters`;return;}
+  if(state.current===state.pages.length-1){els.headerProgress.textContent=`100% · ${totalCh} of ${totalCh} chapters`;return;}
+  const pct=Math.round(((state.current)/(state.pages.length-1))*100);
+  els.headerProgress.textContent=`${pct}% · Chapter ${state.current} of ${totalCh}`;
+}
+
+// Page show
+function showPage(i,dir="right"){
+  if(state.mode==="paged"){
+    const pages=document.querySelectorAll(".page");
+    pages.forEach((p,idx)=>{
+      p.classList.remove("enter-left","enter-right");
+      p.classList.toggle("active",idx===i);
+    });
+    const active=pages[i];
+    if(active){
+      active.classList.add(dir==="right"?"enter-right":"enter-left");
+      setTimeout(()=>active.classList.remove("enter-left","enter-right"),10);
+    }
+  }else{
+    const page=document.querySelectorAll(".page")[i];
+    if(page){page.scrollIntoView({behavior:"smooth",block:"start"});}
+  }
+  state.current=i;
+  localStorage.setItem("lastPage",String(i));
+  updateProgress();
+  renderHighlightsList();
+  if(state.tts.playing){stopTTS()}
+}
+
+// Navigation
+function prevPage(){if(state.current>0){showPage(state.current-1,"left")}}
+function nextPage(){if(state.current<state.pages.length-1){showPage(state.current+1,"right")}}
+document.getElementById("prev").onclick=prevPage;
+document.getElementById("next").onclick=nextPage;
+
+// Keyboard shortcuts guard
+document.addEventListener("keydown",(e)=>{
+  const tag=e.target.tagName.toLowerCase();
+  const editing = tag==="input"||tag==="textarea"||e.target.isContentEditable;
+  if(editing) return;
+  if(e.key==="ArrowLeft"){prevPage()}
+  else if(e.key==="ArrowRight"){nextPage()}
+  else if(e.key.toLowerCase()==="b"){toggleBookmark(state.current)}
+  else if(e.key.toLowerCase()==="h"){els.overlay.classList.toggle("show")}
+  else if(e.key.toLowerCase()==="i"){toggleImmersive()}
+  else if(e.key==="/"){e.preventDefault();toggleSearch(true)}
+});
+
+// Swipe + long-press
+let startX=0,startY=0;
+document.addEventListener("touchstart",e=>{
+  startX=e.touches[0].clientX;startY=e.touches[0].clientY;
+  clearTimeout(state.pressTimer);
+  state.pressTimer=setTimeout(()=>handleLongPress(e),600)
+});
+document.addEventListener("touchend",e=>{
+  clearTimeout(state.pressTimer);
+  const endX=e.changedTouches[0].clientX;const endY=e.changedTouches[0].clientY;
+  const dx=endX-startX,dy=endY-startY;
+  if(Math.abs(dx)>50&&Math.abs(dy)<60){dx>0?prevPage():nextPage()}
+});
+document.addEventListener("mousedown",e=>{
+  clearTimeout(state.pressTimer);
+  state.pressTimer=setTimeout(()=>handleLongPress(e),700)
+});
+document.addEventListener("mouseup",()=>clearTimeout(state.pressTimer));
+
+// Overlay toggle
+document.getElementById("toggleOverlay").onclick=()=>els.overlay.classList.toggle("show");
+document.getElementById("closeOverlay").onclick=()=>els.overlay.classList.remove("show");
+document.addEventListener("click",(e)=>{
+  const page = e.target.closest(".page");
+  if(page){els.overlay.classList.toggle("show")}
+});
+
+// Customization
+document.getElementById("fontSize").oninput=e=>{
+  document.querySelectorAll(".chapter").forEach(ch=>ch.style.fontSize=e.target.value+"px");
+  localStorage.setItem("fontSize",e.target.value)
+};
+document.querySelectorAll(".font-option[data-font]").forEach(btn=>{
+  btn.onclick=()=>{
+    const f=btn.getAttribute("data-font");
+    document.body.style.fontFamily=f;
+    localStorage.setItem("fontFamily",f)
+  }
+});
+
+// Mode toggle
+document.getElementById("modePaged").onclick=()=>setMode("paged");
+document.getElementById("modeScroll").onclick=()=>setMode("scroll");
+function setMode(m){
+  state.mode=m;
+  localStorage.setItem("mode",m);
+  els.book.classList.toggle("scroll-mode",m==="scroll");
+  if(m==="scroll"){
+    document.querySelectorAll(".page").forEach(p=>p.style.display="block");
+    const y=+localStorage.getItem("scrollY")||0;
+    if(y) setTimeout(()=>window.scrollTo(0,y),100);
+  }else{
+    document.querySelectorAll(".page").forEach(p=>p.style.display="none");
+    document.querySelectorAll(".page")[state.current].style.display="block";
+  }
+}
+document.getElementById("toggleImmersive").onclick=toggleImmersive;
+function toggleImmersive(){
+  const on=!document.body.classList.contains("immersive");
+  document.body.classList.toggle("immersive",on);
+  localStorage.setItem("immersive",on?"1":"0");
+}
+
+// Theme
+document.getElementById("toggleTheme").onclick=()=>{
+  state.isDark=!state.isDark;localStorage.setItem("isDark",String(state.isDark));applyTheme()
+};
+function applyTheme(){
+  const dark=state.isDark;
+  document.body.classList.toggle("dark",dark);
+  els.themeIcon.innerHTML=dark
+    ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+    : '<path d="M12 3a9 9 0 0 0 0 18c4.97 0 9-4.03 9-9 0-4.97-4.03-9-9-9z"/>';
+}
+
+// Dictionary
+function handleLongPress(evt){
+  const word=detectWordAtPoint(evt);
+  if(word){
+    document.getElementById("dictWord").value=word;
+    lookupWord();
+    els.overlay.classList.add("show")
+  }else{
+    els.dictResult.textContent="Couldn’t detect a word here. You can type it above.";
+    els.overlay.classList.add("show")
+  }
+}
+function detectWordAtPoint(evt){
+  const x=(evt.touches?evt.touches[0].clientX:evt.clientX),
+        y=(evt.touches?evt.touches[0].clientY:evt.clientY);
+  const el=document.elementFromPoint(x,y);
+  if(!el)return null;
+  let node=el;
+  if(node.nodeType!==3)node=node.firstChild;
+  if(!node||node.nodeType!==3)return null;
+  const text=node.textContent||"";
+  const match=(text.match(/[A-Za-z0-9']+/)||[])[0];
+  return sanitizeWord(match)
+}
+function sanitizeWord(w){return (w||"").replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g,"").slice(0,48)}
+document.getElementById("lookupWord").onclick=lookupWord;
+async function lookupWord(){
+  const w=document.getElementById("dictWord").value.trim();
+  els.dictResult.textContent="";
+  if(!w){els.dictResult.textContent="Enter a word to look up.";return}
+  els.dictResult.textContent=`Looking up “${w}”…`;
+  try{
+    const resp=await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`);
+    if(!resp.ok){els.dictResult.textContent="No definition found.";return}
+    const data=await resp.json();
+    const entry=data[0]||{};
+    const word=entry.word||w;
+    const phon=(entry.phonetics&&entry.phonetics[0]&&entry.phonetics[0].text)||"";
+    const meanings=entry.meanings||[];
+    let defText="No definition.";
+    for(const m of meanings){
+      if(m.definitions&&m.definitions[0]){defText=m.definitions[0].definition;break}
+    }
+    els.dictResult.innerHTML=`<strong>${word}</strong> ${phon?`<span class="small-muted">${phon}</span>`:""}<br>${defText}`;
+  }catch(e){
+    els.dictResult.textContent="Error fetching definition.";
+    showToast("Dictionary lookup error.");
+  }
+}
+
+// Highlights + notes
+function loadHighlightData(){
+  state.highlights=JSON.parse(localStorage.getItem("highlights")||"{}");
+  state.notesByHighlight=JSON.parse(localStorage.getItem("notesByHighlight")||"{}");
+}
+function saveHighlightData(){
+  localStorage.setItem("highlights",JSON.stringify(state.highlights));
+  localStorage.setItem("notesByHighlight",JSON.stringify(state.notesByHighlight));
+}
+function enableHighlighting(){
+  document.querySelectorAll(".chapter").forEach(ch=>{
+    ch.style.webkitUserSelect="text";
+    ch.style.userSelect="text";
+    ch.addEventListener("mouseup",tryHighlightSelection);
+    ch.addEventListener("touchend",tryHighlightSelection);
+  });
+}
+function tryHighlightSelection(){
+  const sel=window.getSelection();
+  if(!sel||sel.isCollapsed)return;
+  const range=sel.getRangeAt(0);
+  if(!range||!range.commonAncestorContainer)return;
+  const ancestor = range.commonAncestorContainer.nodeType===1
+    ? range.commonAncestorContainer
+    : range.commonAncestorContainer.parentElement;
+  if(!ancestor || !ancestor.closest(".chapter")) return;
+  const span=document.createElement("span");
+  span.className="highlight";
+  try{range.surroundContents(span)}catch(e){sel.removeAllRanges();return}
+  const hid="h_"+Date.now()+"_"+Math.floor(Math.random()*10000);
+  span.dataset.hid=hid;
+  span.addEventListener("click",()=>openNoteEditor(hid,span));
+  const text=span.textContent;
+  const pageIndex=state.current;
+  state.highlights[hid]={text,pageIndex};
+  state.notesByHighlight[hid]=state.notesByHighlight[hid]||"";
+  saveHighlightData();
+  if(state.notesByHighlight[hid]){span.classList.add("has-note")}
+  renderHighlightsList();
+  sel.removeAllRanges();
+}
+function openNoteEditor(hid,span){
+  els.overlay.classList.add("show");
+  renderHighlightsList(hid);
+  document.querySelectorAll(".highlight").forEach(h=>h.classList.remove("active"));
+  span.classList.add("active");
+}
+function renderHighlightsList(focusId=null){
+  loadHighlightData();
+  const wrap=document.getElementById("highlights");
+  wrap.innerHTML="";
+  const ids=Object.keys(state.highlights);
+  ids.forEach(id=>{
+    const info=state.highlights[id];
+    const note=state.notesByHighlight[id]||"";
+    const row=document.createElement("div");
+    row.className="note-item";
+    const textBtn=document.createElement("button");
+    textBtn.className="font-option";
+    textBtn.textContent=(info.text.length>80?info.text.slice(0,80)+"…":info.text)+" (p"+(info.pageIndex+1)+")";
+    textBtn.onclick=()=>{showPage(info.pageIndex,"right");els.overlay.classList.remove("show");};
+    const input=document.createElement("input");
+    input.value=note;input.placeholder="Add/edit note…";
+    input.oninput=()=>{
+      state.notesByHighlight[id]=input.value;
+      const pageEl=document.querySelectorAll(".page")[info.pageIndex];
+      if(pageEl){
+        const span=pageEl.querySelector(`.highlight[data-hid="${id}"]`);
+        if(span){input.value?span.classList.add("has-note"):span.classList.remove("has-note")}
+      }
+      saveHighlightData();
+    };
+    const del=document.createElement("button");
+    del.className="font-option";del.textContent="Delete";
+    del.onclick=()=>{deleteHighlight(id)};
+    row.appendChild(textBtn);row.appendChild(input);row.appendChild(del);
+    wrap.appendChild(row);
+    if(focusId&&focusId===id){input.focus()}
+  });
+}
+
+// Export notes
+document.getElementById("exportNotesJson").onclick=()=>downloadText("highlights.json",JSON.stringify({highlights:state.highlights,notes:state.notesByHighlight},null,2));
+document.getElementById("exportNotesMd").onclick=()=>{
+  const lines=["# Highlights",""];
+  Object.entries(state.highlights).forEach(([id,info])=>{
+    const note=state.notesByHighlight[id]||"";
+    lines.push(`- **Page ${info.pageIndex+1}:**`);
+    lines.push(info.text.replace(/\s+/g," ").trim());
+    if(note){lines.push(`  - Note: ${note}`)}
+    lines.push("");
+  });
+  downloadText("highlights.md",lines.join("\n"));
+};
+document.getElementById("clearNotes").onclick=()=>{
+  if(confirm("Delete all highlights and notes?")){
+    state.highlights={};state.notesByHighlight={};saveHighlightData();renderHighlightsList();
+    document.querySelectorAll(".highlight").forEach(span=>{
+      const parent=span.parentNode;
+      while(span.firstChild)parent.insertBefore(span.firstChild,span);
+      parent.removeChild(span);
+    });
+  }
+};
+function downloadText(filename,content){
+  const blob=new Blob([content],{type:"text/plain"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function deleteHighlight(id){
+  const info=state.highlights[id];
+  delete state.highlights[id];delete state.notesByHighlight[id];
+  saveHighlightData();renderHighlightsList();
+  if(info){
+    const pageEl=document.querySelectorAll(".page")[info.pageIndex];
+    if(pageEl){
+      const span=pageEl.querySelector(`.highlight[data-hid="${id}"]`);
+      if(span){
+        const parent=span.parentNode;
+        while(span.firstChild)parent.insertBefore(span.firstChild,span);
+        parent.removeChild(span);
+      }
+    }
+  }
+}
+
+// Bookmarks
+function getBookmarks(){return JSON.parse(localStorage.getItem("bookmarks")||"[]")}
+function setBookmarks(arr){localStorage.setItem("bookmarks",JSON.stringify(arr))}
+function renderBookmarks(){
+  const wrap=document.getElementById("bookmarks");wrap.innerHTML="";
+  getBookmarks().sort((a,b)=>a-b).forEach(idx=>{
+    const b=document.createElement("button");
+    b.className="font-option";b.textContent="Page "+(idx+1);
+    b.onclick=()=>showPage(idx,"right");
+    wrap.appendChild(b);
+  });
+}
+function toggleBookmark(idx){
+  let arr=getBookmarks();
+  arr=arr.includes(idx)?arr.filter(i=>i!==idx):arr.concat(idx);
+  setBookmarks(arr);renderBookmarks();
+  const btn=document.querySelectorAll(".page")[idx]?.querySelector(".tag-bookmark");
+  if(btn)btn.classList.toggle("active");
+}
+function attachBookmarkButtons(){
+  document.querySelectorAll(".page").forEach((pageEl,idx)=>{
+    const btn=pageEl.querySelector(".tag-bookmark");if(!btn)return;
+    btn.onclick=()=>toggleBookmark(idx);
+    const bookmarks=getBookmarks();
+    btn.classList.toggle("active",bookmarks.includes(idx));
+  });
+  renderBookmarks();
+}
+
+// Preferences
+function applyPrefs(){
+  const last=localStorage.getItem("lastPage");if(last){state.current=parseInt(last)||0}
+  const fs=localStorage.getItem("fontSize")||"18";
+  document.getElementById("fontSize").value=fs;
+  document.querySelectorAll(".chapter").forEach(ch=>ch.style.fontSize=fs+"px");
+  const font=localStorage.getItem("fontFamily");if(font){document.body.style.fontFamily=font}
+  const dark=localStorage.getItem("isDark");if(dark==="true"){state.isDark=true;applyTheme()}
+  const mode=localStorage.getItem("mode")||"paged";setMode(mode);
+  const immersive=localStorage.getItem("immersive")==="1";document.body.classList.toggle("immersive",immersive);
+}
+
+// TTS (Web Speech API)
+function initTTS(){
+  if(!("speechSynthesis" in window)){
+    ["ttsPlayPause","ttsStop","ttsPrev","ttsNext"].forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=true});
+    return;
+  }
+  const populateVoices=()=>{
+    state.tts.voices=speechSynthesis.getVoices();
+    els.ttsVoice.innerHTML=state.tts.voices.map((v,i)=>`<option value="${i}">${v.name} (${v.lang})</option>`).join("");
+    const defaultIdx=state.tts.voices.findIndex(v=>/^en[-_]/i.test(v.lang));
+    els.ttsVoice.value = defaultIdx>=0?String(defaultIdx):"0";
+    state.tts.voiceIndex=parseInt(els.ttsVoice.value)||0;
+  };
+  populateVoices();
+  speechSynthesis.onvoiceschanged=populateVoices;
+  els.ttsVoice.onchange=(e)=>{state.tts.voiceIndex=parseInt(e.target.value)||0};
+  els.ttsRate.oninput=(e)=>{state.tts.rate=parseFloat(e.target.value)||1};
+  document.getElementById("ttsPlayPause").onclick=toggleTTS;
+  document.getElementById("ttsStop").onclick=stopTTS;
+  document.getElementById("ttsPrev").onclick=()=>seekSentence(-1);
+  document.getElementById("ttsNext").onclick=()=>seekSentence(1);
+}
+function pagePlainText(){
+  const page=document.querySelectorAll(".page")[state.current];
+  if(!page)return "";
+  const ch=page.querySelector(".chapter");
+  return ch?ch.textContent.trim():"";
+}
+function splitSentences(txt){return txt.split(/(?<=[.!?])\s+/).filter(s=>s.trim().length>0)}
+function speakCurrentSentence(){
+  const sentences=state.tts.sentences;
+  const idx=state.tts.sentIdx;
+  if(idx<0||idx>=sentences.length){stopTTS();return}
+  const u=new SpeechSynthesisUtterance(sentences[idx]);
+  u.rate=state.tts.rate;
+  const voice=state.tts.voices[state.tts.voiceIndex];
+  if(voice)u.voice=voice;
+  u.onend=()=>{
+    state.tts.sentIdx++;
+    if(state.tts.sentIdx<sentences.length){speakCurrentSentence()}
+    else{
+      state.tts.playing=false;
+      if(state.mode==="paged" && state.current<state.pages.length-1){nextPage()}
+    }
+  };
+  state.tts.utter=u;speechSynthesis.speak(u);state.tts.playing=true;
+}
+function toggleTTS(){
+  if(speechSynthesis.speaking){
+    if(state.tts.playing){speechSynthesis.pause();state.tts.playing=false}
+    else{speechSynthesis.resume();state.tts.playing=true}
+    return;
+  }
+  const txt=pagePlainText();if(!txt){return}
+  state.tts.sentences=splitSentences(txt);state.tts.sentIdx=0;speakCurrentSentence();
+}
+function stopTTS(){try{speechSynthesis.cancel()}catch{}state.tts.playing=false}
+function seekSentence(delta){
+  if(!state.tts.sentences.length){state.tts.sentences=splitSentences(pagePlainText())}
+  state.tts.sentIdx=Math.max(0,Math.min(state.tts.sentences.length-1,state.tts.sentIdx+delta));
+  stopTTS();speakCurrentSentence();
+}
+
+// Search overlay
+document.getElementById("openSearch").onclick=()=>toggleSearch(true);
+document.getElementById("closeSearch").onclick=()=>toggleSearch(false);
+els.searchOverlay.onclick=(e)=>{if(e.target===els.searchOverlay)toggleSearch(false)};
+function toggleSearch(open){
+  els.searchOverlay.classList.toggle("show",open!==false);
+  if(els.searchOverlay.classList.contains("show")){
+    els.searchInput.value="";els.searchResults.innerHTML="";els.searchInput.focus();
+  }
+}
+els.searchInput.addEventListener("input",()=>{
+  const q=els.searchInput.value.trim().toLowerCase();
+  els.searchResults.innerHTML="";
+  if(!q)return;
+  state.book?.chapters?.forEach((ch,i)=>{
+    const txt=ch.text || "";
+    if(txt.toLowerCase().includes(q)){
+      const button=document.createElement("button");
+      button.className="font-option";
+      button.textContent=`${ch.title||"Chapter "+(i+1)} — match`;
+      button.onclick=()=>{showPage(i+1,"right");toggleSearch(false)};
+      els.searchResults.appendChild(button);
+    }
+  });
+});
+
+// Continuous scroll position persistence
+window.addEventListener("beforeunload",()=>{
+  if(state.mode==="scroll"){localStorage.setItem("scrollY",window.scrollY)}
+});
+window.addEventListener("load",()=>{
+  if(state.mode==="scroll"){
+    const y=+localStorage.getItem("scrollY")||0;
+    if(y) window.scrollTo(0,y);
+  }
+});
+
+// Service Worker registration (offline cache)
+function registerSW(){
+  if(!("serviceWorker" in navigator))return;
+  const swCode = `
+    const CACHE_NAME="book-reader-cache-v2";
+    const ASSETS=["camcookie876.github.io/books/bookimfo/1/1.json"];
+    self.addEventListener("install",e=>{
+      e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
+    });
+    self.addEventListener("activate",e=>{e.waitUntil(self.clients.claim())});
+    self.addEventListener("fetch",e=>{
+      if(e.request.method!=="GET")return;
+      e.respondWith(
+        caches.match(e.request).then(cached=>{
+          return cached || fetch(e.request).then(resp=>{
+            const copy=resp.clone();
+            caches.open(CACHE_NAME).then(c=>c.put(e.request,copy));
+            return resp;
+          }).catch(()=>cached)
+        })
+      );
+    });
+  `;
+  const blob=new Blob([swCode],{type:"text/javascript"});
+  const swUrl=URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(()=>{});
+}
+
+// Accessibility announce
+const announcer=document.createElement("div");
+announcer.setAttribute("aria-live","polite");
+announcer.className="small-muted";
+announcer.style.position="absolute";announcer.style.left="-9999px";
+document.body.appendChild(announcer);
+function announce(msg){announcer.textContent=msg}
+const observer=new MutationObserver(()=>{
+  const page=document.querySelector(".page.active h2, .page.active h1");
+  if(page){announce(`Reading ${page.textContent}`)}
+});
+observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["class"]});
+
+// Templates (JSON-driven)
+function pageTemplateCover(book){
+  return `<section class="page" aria-label="Cover">
+    <button class="tag-bookmark" aria-label="Bookmark">
+      <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <img class="cover" src="./books/mybook/${book.cover}" alt="Cover" onerror="this.style.display='none'">
+    <h1 style="text-align:center">${book.title||""}</h1>
+    <p style="text-align:center" class="small-muted">${book.author||""}</p>
+  </section>`;
+}
+function pageTemplateChapter(num,ch){
+  const img=ch.image?`<img class="chapter-img" src="./books/mybook/${ch.image}" alt="Chapter image" onerror="this.style.display='none'">`:"";
+  return `<section class="page" aria-label="Chapter ${num}">
+    <button class="tag-bookmark" aria-label="Bookmark">
+      <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <h2>${ch.title?ch.title:`Chapter ${num}`}</h2>
+    ${img}
+    <div class="chapter">${(ch.text||"").replace(/\n/g,"<br>")}</div>
+  </section>`;
+}
+function pageTemplateBack(book){
+  return `<section class="page" aria-label="End">
+    <button class="tag-bookmark" aria-label="Bookmark">
+      <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <img class="back" src="./books/mybook/${book.back}" alt="Back" onerror="this.style.display='none'">
+    <div class="small-muted" style="text-align:center">The End</div>
+  </section>`;
+}
+
+// Outline + stats
+function buildOutline(){
+  const out=document.getElementById("outline");out.innerHTML="";
+  state.book.chapters.forEach((ch,i)=>{
+    const b=document.createElement("button");b.className="font-option";
+    const title=ch.title?ch.title:`Chapter ${i+1}`;
+    const wc=state.chapterWordCounts[i]||0;
+    b.textContent = wc ? `${title} · ${wc} words` : title;
+    b.onclick=()=>showPage(i+1,"right");
+    out.appendChild(b);
+  });
+}
+function estimateTotals(){
+  state.chapterWordCounts = state.book.chapters.map(ch => {
+    const words = (ch.text || "").match(/\b\w+\b/g);
+    return words ? words.length : 0;
+  });
+  const totalWords=state.chapterWordCounts.reduce((a,b)=>a+b,0);
+  const wpm=220;const totalMins=Math.ceil(totalWords/wpm);
+  const avg=Math.round(totalWords/(state.book.chapters.length||1));
+  els.statsBox.innerHTML=`Total words: ${totalWords}<br>Estimated time: ~${totalMins} min<br>Average per chapter: ${avg}`;
+}
+
+// Render
+function render(){
+  els.book.innerHTML=state.pages.join("");
+  attachBookmarkButtons();
+  enableHighlighting();
+  applyPrefs();
+  if(state.mode==="paged"){showPage(state.current,"right")}
+  else{document.querySelectorAll(".page").forEach(p=>p.style.display="block")}
+}
+
+// Load book (JSON-driven)
+async function loadBook(){
+  try{
+    const resp=await fetch("./books/mybook/story.json");
+    if(!resp.ok) throw new Error("story.json not found");
+    const book=await resp.json();
+    state.book=book;
+    els.title.textContent=book.title||"Untitled";
+    // Build pages
+    state.pages=[];
+    state.pages.push(pageTemplateCover(book));
+    book.chapters.forEach((ch,i)=>{
+      state.pages.push(pageTemplateChapter(i+1,ch));
+    });
+    state.pages.push(pageTemplateBack(book));
+    // Stats
+    estimateTotals();
+    buildOutline();
+    // Render
+    render();
+    updateProgress();
+    loadHighlightData();
+    renderHighlightsList();
+  }catch(e){
+    els.book.innerHTML=`<section class="page active"><h2>Failed to load story</h2><div class="small-muted">Ensure ./books/mybook/story.json exists.</div></section>`;
+    showToast("Failed to load story.json");
+  }
+}
+
+// Service Worker
+function registerSW(){
+  if(!("serviceWorker" in navigator))return;
+  const swCode = `
+    const CACHE_NAME="book-reader-cache-v2";
+    const ASSETS=["./","./books/mybook/story.json"];
+    self.addEventListener("install",e=>{
+      e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
+    });
+    self.addEventListener("activate",e=>{e.waitUntil(self.clients.claim())});
+    self.addEventListener("fetch",e=>{
+      if(e.request.method!=="GET")return;
+      e.respondWith(
+        caches.match(e.request).then(cached=>{
+          return cached || fetch(e.request).then(resp=>{
+            const copy=resp.clone();
+            caches.open(CACHE_NAME).then(c=>c.put(e.request,copy));
+            return resp;
+          }).catch(()=>cached)
+        })
+      );
+    });
+  `;
+  const blob=new Blob([swCode],{type:"text/javascript"});
+  const swUrl=URL.createObjectURL(blob);
+  navigator.serviceWorker.register(swUrl).catch(()=>{});
+}
+
+// Accessibility announce
+const announcer=document.createElement("div");
+announcer.setAttribute("aria-live","polite");
+announcer.className="small-muted";
+announcer.style.position="absolute";announcer.style.left="-9999px";
+document.body.appendChild(announcer);
+function announce(msg){announcer.textContent=msg}
+const observer=new MutationObserver(()=>{
+  const page=document.querySelector(".page.active h2, .page.active h1");
+  if(page){announce(`Reading ${page.textContent}`)}
+});
+observer.observe(document.body,{subtree:true,attributes:true,attributeFilter:["class"]});
+
+// Init
+initPalette();
+initTTS();
+registerSW();
+loadBook();
+updateProgress();
+
+// Persist scroll position in continuous mode
+window.addEventListener("beforeunload",()=>{
+  if(state.mode==="scroll"){localStorage.setItem("scrollY",window.scrollY)}
+});
+window.addEventListener("load",()=>{
+  if(state.mode==="scroll"){
+    const y=+localStorage.getItem("scrollY")||0;
+    if(y) window.scrollTo(0,y);
+  }
+});
+</script>
+</body>
+</html>
